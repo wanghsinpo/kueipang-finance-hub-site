@@ -45,7 +45,8 @@ export function vOnboarding() {
       <button class="btn btn-primary btn-block" id="ob-drive">🔗 連線 Google Drive 下載帳務資料</button>
       <div class="or">或</div>
       <button class="btn btn-block" id="ob-file">📄 匯入種子資料檔（.json）</button>
-      <input type="file" id="ob-file-input" accept=".json,application/json" hidden>
+      <p class="small muted">可一次選取全部三個檔：accounts / book-115 / history-tb</p>
+      <input type="file" id="ob-file-input" accept=".json,application/json" multiple hidden>
       <div class="or">或</div>
       <button class="btn btn-ghost btn-block" id="ob-empty">從空白帳簿開始</button>
     </div>
@@ -62,13 +63,16 @@ export function vOnboarding() {
 }
 
 async function importFiles(files) {
+  const ok = [], bad = [];
   for (const f of files) {
     try {
       const obj = JSON.parse(await f.text());
-      const desc = store.importAny(obj);
-      toast('匯入成功：' + desc);
-    } catch (e) { toast('匯入失敗：' + e.message, true); }
+      ok.push(store.importAny(obj));
+    } catch (e) { bad.push(f.name + '（' + e.message + '）'); }
   }
+  // 多檔一次匯入時彙總成一則，避免連續 toast 互相蓋掉
+  if (ok.length) toast('匯入成功：' + ok.join('、') + (bad.length ? `；${bad.length} 個失敗` : ''), false);
+  if (bad.length && !ok.length) toast('匯入失敗：' + bad.join('、'), true);
   window.dispatchEvent(new Event('hashchange'));
 }
 
