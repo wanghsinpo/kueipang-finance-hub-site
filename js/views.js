@@ -454,7 +454,7 @@ export function vReports() {
   const rows = R.tbRows(year);
   const live = R.hasVoucherData(year);
 
-  const body = type === 'tb' ? reportTB(rows)
+  const body = type === 'tb' ? reportTB(rows, !live)
     : type === 'pl' ? reportPL(R.incomeStatement(rows))
     : reportBS(R.balanceSheet(rows));
 
@@ -477,9 +477,15 @@ export function vReports() {
   main().querySelectorAll('.tab').forEach(t => t.onclick = () => { sessionStorage.setItem('kfh.rt', t.dataset.t); vReports(); });
 }
 
-function reportTB(rows) {
+function reportTB(rows, historical = false) {
   const nz = rows.filter(r => r.open || r.dr || r.cr || r.close);
-  const tot = nz.reduce((s, r) => { s.dr += r.dr; s.cr += r.cr; return s; }, { dr: 0, cr: 0 });
+  const tot = nz.reduce((s, r) => { s.dr += r.dr; s.cr += r.cr; s.close += r.close; return s; }, { dr: 0, cr: 0, close: 0 });
+  // 歷史封存年（93-101）流量合計有既有缺口，但期末合計=0；用期末平衡當判斷，避免誤報
+  const verdict = tot.dr === tot.cr
+    ? '✓ 平衡'
+    : (historical && tot.close === 0
+      ? '<span class="muted">期末平衡（流量合計差 ' + fmt(Math.abs(tot.dr - tot.cr)) + '，封存匯出既有缺口）</span>'
+      : '<span class="err-text">不平衡！</span>');
   return `<div class="card"><div class="table-scroll"><table class="tbl">
     <thead><tr><th>科目</th><th class="num">期初</th><th class="num">借方</th><th class="num">貸方</th><th class="num">期末</th></tr></thead>
     <tbody>
@@ -495,7 +501,7 @@ function reportTB(rows) {
       }).join('')}
     </tbody>
     <tfoot><tr><td>合計</td><td></td><td class="num"><b>${fmt(tot.dr)}</b></td><td class="num"><b>${fmt(tot.cr)}</b></td>
-      <td class="num">${tot.dr === tot.cr ? '✓ 平衡' : '不平衡！'}</td></tr></tfoot>
+      <td class="num">${verdict}</td></tr></tfoot>
   </table></div></div>`;
 }
 
