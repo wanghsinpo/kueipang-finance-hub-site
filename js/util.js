@@ -71,8 +71,10 @@ export const GROUPS = {
   payable: c => /^(2116|2120|2130)/.test(c),               // 應付款項
 };
 
-// 傳票種類
-export const KINDS = { '1': '現金收入', '2': '現金支出', '3': '轉帳', '9': '結帳' };
+// 傳票種類（依布政使 A-A-B-A 傳票輸入作業實際值）
+// 115 年實測分布：3 轉帳 90.1%、6 存貨調整 9.7%、2 現金支出 0.2%
+export const KINDS = { '1': '現金收入', '2': '現金支出', '3': '轉帳', '6': '存貨調整', '9': '結帳' };
+export function kindName(k) { return KINDS[k] || ('種類 ' + k); }
 
 // ---- 雜項 ----
 export function esc(s) {

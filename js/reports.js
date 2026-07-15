@@ -146,6 +146,50 @@ export function cashAccounts(year) {
   return [...set].sort();
 }
 
+// 部門別試算表：對應布政使 A-A-G-A 的「部門+會計項目」索引
+// 部門掛在分錄行（僅存貨/成本/人工類科目有），無部門者歸入 '' 組。
+// 同一科目可跨部門，故以 (dept, acct) 為鍵；期初亦然。
+export function deptTrialBalance(year) {
+  const b = store.book(year);
+  const depts = b.depts || {};
+  const cell = {};   // "dept|acct" -> {dept, code, open, dr, cr, close}
+  const ensure = (d, c) => cell[d + '|' + c] || (cell[d + '|' + c] = { dept: d, code: c, open: 0, dr: 0, cr: 0, close: 0 });
+
+  // 期初：TB 的期初沒有部門維度，只能歸到該科目「唯一有異動的部門」；
+  // 跨部門科目無法拆分期初，故一律掛在無部門組，並在畫面標示。
+  const acctDepts = {};
+  for (const v of b.vouchers) {
+    if (v.kind === '9') continue;
+    for (const l of v.lines) (acctDepts[l.acct] || (acctDepts[l.acct] = new Set())).add(l.dept || '');
+  }
+  for (const [code, amt] of Object.entries(b.opening)) {
+    if (!amt) continue;
+    const ds = acctDepts[code];
+    const only = ds && ds.size === 1 ? [...ds][0] : '';
+    ensure(only, code).open = amt;
+  }
+  for (const v of b.vouchers) {
+    if (v.kind === '9') continue;
+    for (const l of v.lines) {
+      const r = ensure(l.dept || '', l.acct);
+      if (l.side === 'D') r.dr += l.amt; else r.cr += l.amt;
+    }
+  }
+  for (const r of Object.values(cell)) r.close = r.open + r.dr - r.cr;
+
+  // 依部門分組（無部門排最前，與布政使報表順序一致）
+  const byDept = {};
+  for (const r of Object.values(cell)) (byDept[r.dept] || (byDept[r.dept] = [])).push(r);
+  const order = Object.keys(byDept).sort((a, b2) => (a === '' ? -1 : b2 === '' ? 1 : a.localeCompare(b2)));
+  const groups = order.map(d => {
+    const rows = byDept[d].filter(r => r.open || r.dr || r.cr || r.close).sort((a, b2) => a.code.localeCompare(b2.code));
+    const tot = rows.reduce((s, r) => { s.open += r.open; s.dr += r.dr; s.cr += r.cr; s.close += r.close; return s; }, { open: 0, dr: 0, cr: 0, close: 0 });
+    return { dept: d, name: d === '' ? '(無部門)' : (depts[d] || d), rows, tot };
+  }).filter(g => g.rows.length);
+  const grand = groups.reduce((s, g) => { s.dr += g.tot.dr; s.cr += g.tot.cr; return s; }, { dr: 0, cr: 0 });
+  return { groups, grand, hasDepts: Object.keys(depts).length > 0 };
+}
+
 // 損益表：rows 來自 tbRows；回傳分節結構（金額為正向表達）
 export function incomeStatement(rows) {
   const nm = c => store.acctName(c);

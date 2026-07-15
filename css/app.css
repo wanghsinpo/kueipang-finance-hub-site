@@ -369,3 +369,10 @@ select.input { appearance: auto; }
 /* ---- 現金簿 ---- */
 .tbl-cash { font-size: 13px; }
 .tbl-cash td { padding-left: 6px; padding-right: 6px; }
+
+/* ---- 部門別試算表 ---- */
+.tbl-dept .dept-head td {
+  padding-top: 14px; border-bottom: 1px solid var(--baseline);
+  background: var(--page); font-size: 13px;
+}
+.tbl-dept tbody:first-of-type .dept-head td { padding-top: 4px; }

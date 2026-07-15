@@ -2,7 +2,7 @@
 import { store } from './store.js';
 import { sync } from './sync.js';
 import * as R from './reports.js';
-import { todayROC, parseROC, currentROCYear, fmt, fmtSigned, parseAmt, CATS, catOf, KINDS, esc, uid, sha256, download } from './util.js';
+import { todayROC, parseROC, currentROCYear, fmt, fmtSigned, parseAmt, CATS, catOf, KINDS, kindName, esc, uid, sha256, download } from './util.js';
 
 const $ = sel => document.querySelector(sel);
 const main = () => $('#main');
@@ -127,7 +127,7 @@ function vRow(year, v) {
   const total = v.lines.filter(l => l.side === 'D').reduce((s, l) => s + l.amt, 0);
   return `<a class="vrow" href="#/voucher/${year}/${v.no}">
     <div>
-      <div class="vrow-memo">${esc(v.memo || KINDS[v.kind] || '傳票')}${v.src === 'merp' ? ' <span class="tag">布政使</span>' : ''}</div>
+      <div class="vrow-memo">${esc(v.memo || kindName(v.kind))}${v.src === 'merp' ? ' <span class="tag">布政使</span>' : ''}</div>
       <div class="muted small">${v.date}｜#${v.no}｜${v.lines.length} 行</div>
     </div>
     <div class="vrow-amt">${fmt(total)}</div>
@@ -456,8 +456,8 @@ export function vReports() {
   if (!years.includes(year)) year = years[0];
   const live = R.hasVoucherData(year);
 
-  // 日記帳／現金簿需要逐筆傳票，歷史封存年（僅有 TB 彙總）不適用
-  const LIVE_ONLY = ['jn', 'cb'];
+  // 日記帳／現金簿／部門別需要逐筆傳票，歷史封存年（僅有 TB 彙總）不適用
+  const LIVE_ONLY = ['jn', 'cb', 'dp'];
   let type = sessionStorage.getItem('kfh.rt') || 'tb';
   if (!live && LIVE_ONLY.includes(type)) type = 'tb';
   const month = parseInt(sessionStorage.getItem('kfh.rm') || '0', 10);
@@ -468,9 +468,11 @@ export function vReports() {
     : type === 'pl' ? reportPL(R.incomeStatement(rows))
     : type === 'bs' ? reportBS(R.balanceSheet(rows))
     : type === 'jn' ? reportJournal(R.journal(year, month))
+    : type === 'dp' ? reportDept(R.deptTrialBalance(year))
     : reportCashBook(R.cashBook(year, month));
 
-  const monthSel = LIVE_ONLY.includes(type) ? `
+  // 部門別為全年彙總，不吃月份篩選
+  const monthSel = (type === 'jn' || type === 'cb') ? `
     <select id="r-month" class="input input-inline">
       <option value="0" ${!month ? 'selected' : ''}>全年</option>
       ${Array.from({ length: 12 }, (_, i) => i + 1).map(m =>
@@ -493,7 +495,8 @@ export function vReports() {
       <button class="tab ${type === 'pl' ? 'active' : ''}" data-t="pl">損益表</button>
       <button class="tab ${type === 'bs' ? 'active' : ''}" data-t="bs">資產負債表</button>
       ${live ? `<button class="tab ${type === 'jn' ? 'active' : ''}" data-t="jn">日記帳</button>
-      <button class="tab ${type === 'cb' ? 'active' : ''}" data-t="cb">現金簿</button>` : ''}
+      <button class="tab ${type === 'cb' ? 'active' : ''}" data-t="cb">現金簿</button>
+      <button class="tab ${type === 'dp' ? 'active' : ''}" data-t="dp">部門別</button>` : ''}
     </div>
     ${type === 'tb' ? `<div class="seg">
       <button class="seg-btn ${tbMode === 'net' ? 'active' : ''}" data-m="net">餘額式</button>
@@ -591,7 +594,7 @@ function reportJournal(j) {
             <td rowspan="${v.lines.length + 1}">
               <div class="jn-date">${v.date}</div>
               <a class="link jn-no" href="#/voucher/${v.date.slice(0, 3)}/${v.no}">${v.no}</a>
-              <div class="muted jn-kind">${KINDS[v.kind] || v.kind}</div>
+              <div class="muted jn-kind">${kindName(v.kind)}</div>
             </td>
             <td colspan="4" class="jn-memo">${esc(v.memo || '')}</td>
           </tr>
@@ -633,6 +636,43 @@ function reportCashBook(cb) {
       <tfoot><tr><td colspan="5">合計</td><td class="num"><b>${fmt(cb.tot.in)}</b></td><td class="num"><b>${fmt(cb.tot.out)}</b></td><td class="num"><b>${fmt(cb.closing)}</b></td></tr></tfoot>
     </table></div>` : '<p class="muted">此期間沒有現金／銀行異動。</p>'}
   </div>`;
+}
+
+// 部門別試算表：對應布政使「部門+會計項目」索引
+function reportDept(d) {
+  if (!d.hasDepts) {
+    return '<div class="card"><p class="muted">此年度資料未含部門維度。部門需由含部門的分類帳匯出重建。</p></div>';
+  }
+  const share = v => d.grand.dr ? (v / d.grand.dr * 100).toFixed(1) + '%' : '—';
+  return `<div class="card">
+    <div class="rpt-meta">部門掛在分錄行，僅存貨／成本／人工類科目有；其餘歸「(無部門)」。本期借方合計 ${fmt(d.grand.dr)}</div>
+    <div class="table-scroll"><table class="tbl tbl-dept">
+      <thead><tr><th>科目</th><th class="num">期初</th><th class="num">借方</th><th class="num">貸方</th><th class="num">期末</th></tr></thead>
+      ${d.groups.map(g => `
+        <tbody>
+          <tr class="dept-head"><td colspan="5">
+            <b>${g.dept ? g.dept + '　' : ''}${esc(g.name)}</b>
+            <span class="muted">　${g.rows.length} 科目　占本期借方 ${share(g.tot.dr)}</span>
+          </td></tr>
+          ${g.rows.map(r => {
+            const o = fmtSigned(r.open), c = fmtSigned(r.close);
+            return `<tr>
+              <td class="indent"><a class="link" href="#/ledger/${r.code}"><b>${r.code}</b></a> ${esc(store.acctName(r.code))}</td>
+              <td class="num muted">${r.open ? o.side + o.text : ''}</td>
+              <td class="num">${r.dr ? fmt(r.dr) : ''}</td>
+              <td class="num">${r.cr ? fmt(r.cr) : ''}</td>
+              <td class="num"><b>${r.close ? c.side + c.text : ''}</b></td>
+            </tr>`;
+          }).join('')}
+          <tr class="row-subtotal"><td>小計</td>
+            <td class="num">${g.tot.open ? fmtSigned(g.tot.open).side + fmtSigned(g.tot.open).text : ''}</td>
+            <td class="num">${fmt(g.tot.dr)}</td><td class="num">${fmt(g.tot.cr)}</td>
+            <td class="num">${g.tot.close ? fmtSigned(g.tot.close).side + fmtSigned(g.tot.close).text : ''}</td></tr>
+        </tbody>`).join('')}
+      <tfoot><tr><td>結餘</td><td></td>
+        <td class="num"><b>${fmt(d.grand.dr)}</b></td><td class="num"><b>${fmt(d.grand.cr)}</b></td>
+        <td class="num">${d.grand.dr === d.grand.cr ? '✓ 平衡' : '<span class="err-text">不平衡！</span>'}</td></tr></tfoot>
+    </table></div></div>`;
 }
 
 function secRows(list) {
