@@ -1,5 +1,5 @@
 // sw.js — 離線快取：HTML 走網路優先（避免舊版黏住），資產走快取優先
-const VERSION = 'kfh-v1.0.1';
+const VERSION = 'kfh-v1.1.0';
 const ASSETS = [
   './',
   './index.html',

@@ -450,35 +450,62 @@ export function vReports() {
   if (!years.length) { vOnboarding(); return; }
   let year = parseInt(sessionStorage.getItem('kfh.ry') || '', 10);
   if (!years.includes(year)) year = years[0];
-  const type = sessionStorage.getItem('kfh.rt') || 'tb';
-  const rows = R.tbRows(year);
   const live = R.hasVoucherData(year);
 
-  const body = type === 'tb' ? reportTB(rows, !live)
+  // 日記帳／現金簿需要逐筆傳票，歷史封存年（僅有 TB 彙總）不適用
+  const LIVE_ONLY = ['jn', 'cb'];
+  let type = sessionStorage.getItem('kfh.rt') || 'tb';
+  if (!live && LIVE_ONLY.includes(type)) type = 'tb';
+  const month = parseInt(sessionStorage.getItem('kfh.rm') || '0', 10);
+  const tbMode = sessionStorage.getItem('kfh.tbm') || 'net';   // net=餘額式 gross=總額式
+
+  const rows = R.tbRows(year);
+  const body = type === 'tb' ? reportTB(rows, !live, tbMode)
     : type === 'pl' ? reportPL(R.incomeStatement(rows))
-    : reportBS(R.balanceSheet(rows));
+    : type === 'bs' ? reportBS(R.balanceSheet(rows))
+    : type === 'jn' ? reportJournal(R.journal(year, month))
+    : reportCashBook(R.cashBook(year, month));
+
+  const monthSel = LIVE_ONLY.includes(type) ? `
+    <select id="r-month" class="input input-inline">
+      <option value="0" ${!month ? 'selected' : ''}>全年</option>
+      ${Array.from({ length: 12 }, (_, i) => i + 1).map(m =>
+        `<option value="${m}" ${m === month ? 'selected' : ''}>${m} 月</option>`).join('')}
+    </select>` : '';
 
   main().innerHTML = `
   <div class="page">
     <div class="page-head"><h2>報表</h2>
-      <select id="r-year" class="input input-inline">
-        ${years.map(y => `<option value="${y}" ${y === year ? 'selected' : ''}>${y} 年${R.hasVoucherData(y) ? '' : '（歷史）'}</option>`).join('')}
-      </select>
+      <div class="head-controls">
+        ${monthSel}
+        <select id="r-year" class="input input-inline">
+          ${years.map(y => `<option value="${y}" ${y === year ? 'selected' : ''}>${y} 年${R.hasVoucherData(y) ? '' : '（歷史）'}</option>`).join('')}
+        </select>
+      </div>
     </div>
-    ${live ? '' : '<div class="banner banner-info">此年度為歷史封存資料（來自布政使各年試算表），僅供查閱。</div>'}
+    ${live ? '' : '<div class="banner banner-info">此年度為歷史封存資料（來自布政使各年試算表），僅供查閱；日記帳與現金簿需逐筆傳票，該年度不提供。</div>'}
     <div class="tabs">
       <button class="tab ${type === 'tb' ? 'active' : ''}" data-t="tb">試算表</button>
       <button class="tab ${type === 'pl' ? 'active' : ''}" data-t="pl">損益表</button>
       <button class="tab ${type === 'bs' ? 'active' : ''}" data-t="bs">資產負債表</button>
+      ${live ? `<button class="tab ${type === 'jn' ? 'active' : ''}" data-t="jn">日記帳</button>
+      <button class="tab ${type === 'cb' ? 'active' : ''}" data-t="cb">現金簿</button>` : ''}
     </div>
+    ${type === 'tb' ? `<div class="seg">
+      <button class="seg-btn ${tbMode === 'net' ? 'active' : ''}" data-m="net">餘額式</button>
+      <button class="seg-btn ${tbMode === 'gross' ? 'active' : ''}" data-m="gross">總額式</button>
+    </div>` : ''}
     ${body}
   </div>`;
   $('#r-year').onchange = e => { sessionStorage.setItem('kfh.ry', e.target.value); if (R.hasVoucherData(parseInt(e.target.value, 10))) setWorkYear(parseInt(e.target.value, 10)); vReports(); };
+  const ms = $('#r-month'); if (ms) ms.onchange = e => { sessionStorage.setItem('kfh.rm', e.target.value); vReports(); };
   main().querySelectorAll('.tab').forEach(t => t.onclick = () => { sessionStorage.setItem('kfh.rt', t.dataset.t); vReports(); });
+  main().querySelectorAll('.seg-btn').forEach(b => b.onclick = () => { sessionStorage.setItem('kfh.tbm', b.dataset.m); vReports(); });
 }
 
-function reportTB(rows, historical = false) {
+function reportTB(rows, historical = false, mode = 'net') {
   const nz = rows.filter(r => r.open || r.dr || r.cr || r.close);
+  if (mode === 'gross') return reportTBGross(nz, historical);
   const tot = nz.reduce((s, r) => { s.dr += r.dr; s.cr += r.cr; s.close += r.close; return s; }, { dr: 0, cr: 0, close: 0 });
   // 歷史封存年（93-101）流量合計有既有缺口，但期末合計=0；用期末平衡當判斷，避免誤報
   const verdict = tot.dr === tot.cr
@@ -503,6 +530,105 @@ function reportTB(rows, historical = false) {
     <tfoot><tr><td>合計</td><td></td><td class="num"><b>${fmt(tot.dr)}</b></td><td class="num"><b>${fmt(tot.cr)}</b></td>
       <td class="num">${verdict}</td></tr></tfoot>
   </table></div></div>`;
+}
+
+// 總額式：期初/本期/期末各拆借貸兩欄；三對合計應各自相等
+function reportTBGross(nz, historical) {
+  const { rows, tot } = R.tbGross(nz);
+  const pairs = [
+    ['期初', tot.openDr, tot.openCr],
+    ['本期', tot.dr, tot.cr],
+    ['期末', tot.closeDr, tot.closeCr],
+  ];
+  const offBy = pairs.filter(([, d, c]) => d !== c);
+  const gaps = offBy.map(([n, d, c]) => n + '差 ' + fmt(Math.abs(d - c))).join('、');
+  // 封存年（93-101）期初與本期各有等額反向缺口、互相抵銷，期末仍平衡 → 中性提示而非報錯
+  const verdict = offBy.length === 0
+    ? '✓ 三段皆平衡'
+    : (historical && tot.closeDr === tot.closeCr
+      ? `<span class="muted">期末平衡（${gaps}，兩者等額反向互相抵銷，為封存匯出既有缺口）</span>`
+      : `<span class="err-text">不平衡：${gaps}</span>`);
+  const cell = v => v ? fmt(v) : '';
+  return `<div class="card"><div class="table-scroll"><table class="tbl tbl-gross">
+    <thead>
+      <tr><th rowspan="2">科目</th><th class="num" colspan="2">期初金額</th><th class="num" colspan="2">本期金額</th><th class="num" colspan="2">期末金額</th></tr>
+      <tr><th class="num sub">借方餘額</th><th class="num sub">貸方餘額</th><th class="num sub">借方金額</th><th class="num sub">貸方金額</th><th class="num sub">借方餘額</th><th class="num sub">貸方餘額</th></tr>
+    </thead>
+    <tbody>
+      ${rows.map(r => `<tr>
+        <td><a class="link" href="#/ledger/${r.code}"><b>${r.code}</b></a> ${esc(store.acctName(r.code))}</td>
+        <td class="num muted">${cell(r.openDr)}</td><td class="num muted">${cell(r.openCr)}</td>
+        <td class="num">${cell(r.dr)}</td><td class="num">${cell(r.cr)}</td>
+        <td class="num"><b>${cell(r.closeDr)}</b></td><td class="num"><b>${cell(r.closeCr)}</b></td>
+      </tr>`).join('')}
+    </tbody>
+    <tfoot>
+      <tr><td>合計</td>
+        <td class="num"><b>${fmt(tot.openDr)}</b></td><td class="num"><b>${fmt(tot.openCr)}</b></td>
+        <td class="num"><b>${fmt(tot.dr)}</b></td><td class="num"><b>${fmt(tot.cr)}</b></td>
+        <td class="num"><b>${fmt(tot.closeDr)}</b></td><td class="num"><b>${fmt(tot.closeCr)}</b></td></tr>
+      <tr><td colspan="7" class="num">${verdict}</td></tr>
+    </tfoot>
+  </table></div></div>`;
+}
+
+// 日記帳：時序傳票，每張展開分錄
+function reportJournal(j) {
+  if (!j.vouchers.length) return '<div class="card"><p class="muted">此期間沒有傳票。</p></div>';
+  return `<div class="card">
+    <div class="rpt-meta">共 ${j.vouchers.length} 張傳票　借方合計 ${fmt(j.tot.dr)}　貸方合計 ${fmt(j.tot.cr)}
+      ${j.tot.dr === j.tot.cr ? '<span class="ok-text">✓ 平衡</span>' : '<span class="err-text">不平衡！</span>'}
+      ${j.unbalanced ? `<span class="err-text">（${j.unbalanced} 張單張不平衡）</span>` : ''}</div>
+    <div class="table-scroll"><table class="tbl tbl-journal">
+      <thead><tr><th>日期／傳票</th><th>科目</th><th>摘要</th><th class="num">借方</th><th class="num">貸方</th></tr></thead>
+      <tbody>
+        ${j.vouchers.map(v => `
+          <tr class="jn-head">
+            <td rowspan="${v.lines.length + 1}">
+              <div class="jn-date">${v.date}</div>
+              <a class="link jn-no" href="#/voucher/${v.date.slice(0, 3)}/${v.no}">${v.no}</a>
+              <div class="muted jn-kind">${KINDS[v.kind] || v.kind}</div>
+            </td>
+            <td colspan="4" class="jn-memo">${esc(v.memo || '')}</td>
+          </tr>
+          ${v.lines.map(l => `<tr class="jn-line">
+            <td><span class="mono">${l.acct}</span> ${esc(store.acctName(l.acct))}</td>
+            <td class="muted">${esc(l.memo || '')}</td>
+            <td class="num">${l.side === 'D' ? fmt(l.amt) : ''}</td>
+            <td class="num">${l.side === 'C' ? fmt(l.amt) : ''}</td>
+          </tr>`).join('')}
+        `).join('')}
+      </tbody>
+      <tfoot><tr><td colspan="3">合計</td><td class="num"><b>${fmt(j.tot.dr)}</b></td><td class="num"><b>${fmt(j.tot.cr)}</b></td></tr></tfoot>
+    </table></div></div>`;
+}
+
+// 現金簿：現金及銀行合併時序，收/付/移動餘額
+function reportCashBook(cb) {
+  const net = cb.tot.in - cb.tot.out;
+  return `<div class="card">
+    <div class="rpt-meta">
+      期初部位 ${fmt(cb.opening)}　收入 <span class="ok-text">${fmt(cb.tot.in)}</span>　支出 <span class="err-text">${fmt(cb.tot.out)}</span>
+      淨變動 ${net >= 0 ? '+' : '−'}${fmt(Math.abs(net))}　期末部位 <b>${fmt(cb.closing)}</b>
+    </div>
+    <div class="rpt-note muted">現金及各銀行存款科目合併，依日期與傳票號排序；「餘額」為所有現金銀行科目的合計部位。</div>
+    ${cb.rows.length ? `<div class="table-scroll"><table class="tbl tbl-cash">
+      <thead><tr><th>日期</th><th>傳票</th><th>現金／銀行科目</th><th>對方科目</th><th>摘要</th><th class="num">收入</th><th class="num">支出</th><th class="num">餘額</th></tr></thead>
+      <tbody>
+        ${cb.rows.map(r => `<tr>
+          <td class="nowrap">${r.date}</td>
+          <td><a class="link mono" href="#/voucher/${r.date.slice(0, 3)}/${r.no}">${r.no}</a></td>
+          <td><a class="link" href="#/ledger/${r.acct}">${esc(store.acctName(r.acct))}</a></td>
+          <td class="muted">${r.contra.map(c => esc(store.acctName(c))).join('、') || '—'}</td>
+          <td class="muted">${esc(r.memo || '')}</td>
+          <td class="num ok-text">${r.side === 'D' ? fmt(r.amt) : ''}</td>
+          <td class="num err-text">${r.side === 'C' ? fmt(r.amt) : ''}</td>
+          <td class="num"><b>${fmt(r.bal)}</b></td>
+        </tr>`).join('')}
+      </tbody>
+      <tfoot><tr><td colspan="5">合計</td><td class="num"><b>${fmt(cb.tot.in)}</b></td><td class="num"><b>${fmt(cb.tot.out)}</b></td><td class="num"><b>${fmt(cb.closing)}</b></td></tr></tfoot>
+    </table></div>` : '<p class="muted">此期間沒有現金／銀行異動。</p>'}
+  </div>`;
 }
 
 function secRows(list) {

@@ -324,3 +324,48 @@ select.input { appearance: auto; }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .toast-err { background: var(--bad); color: #fff; }
 @media (min-width: 760px) { .toast { bottom: 40px; } }
+
+/* ---- 報表：分頁列（5 個分頁時可橫向捲動，避免手機擠壓） ---- */
+.tabs { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { flex: 1 0 auto; white-space: nowrap; padding-left: 10px; padding-right: 10px; }
+.head-controls { display: flex; gap: 6px; align-items: center; }
+
+/* ---- 報表：餘額式／總額式切換 ---- */
+.seg {
+  display: inline-flex; margin-bottom: 12px;
+  border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+  background: var(--surface);
+}
+.seg-btn {
+  padding: 7px 16px; font-size: 13px; font-weight: 600; font-family: inherit;
+  background: transparent; color: var(--ink-2); border: none; cursor: pointer;
+}
+.seg-btn + .seg-btn { border-left: 1px solid var(--border); }
+.seg-btn.active { background: var(--accent); color: #fff; }
+
+/* ---- 報表：共用 ---- */
+.rpt-meta { font-size: 13px; color: var(--ink-2); margin-bottom: 8px; line-height: 1.7; }
+.rpt-note { font-size: 12px; margin-bottom: 10px; }
+.mono { font-variant-numeric: tabular-nums; font-size: 13px; }
+.nowrap { white-space: nowrap; }
+
+/* ---- 試算表：總額式（6 個數字欄，字級縮小以塞入） ---- */
+.tbl-gross { font-size: 13px; }
+.tbl-gross th.sub { font-size: 11px; padding-top: 0; top: 22px; }
+.tbl-gross th[colspan] { text-align: center; border-bottom: 1px solid var(--grid); }
+.tbl-gross td, .tbl-gross th { padding-left: 6px; padding-right: 6px; }
+
+/* ---- 日記帳 ---- */
+.tbl-journal .jn-head td { border-bottom: none; padding-top: 12px; }
+.tbl-journal .jn-head > td:first-child { border-bottom: 1px solid var(--grid); }
+.jn-date { font-weight: 600; white-space: nowrap; }
+.jn-no { font-size: 12px; font-variant-numeric: tabular-nums; }
+.jn-kind { font-size: 11px; }
+.jn-memo { font-weight: 600; color: var(--ink); }
+.tbl-journal .jn-line td { border-bottom: none; padding-top: 3px; padding-bottom: 3px; }
+.tbl-journal .jn-line:last-of-type td { border-bottom: 1px solid var(--grid); padding-bottom: 8px; }
+
+/* ---- 現金簿 ---- */
+.tbl-cash { font-size: 13px; }
+.tbl-cash td { padding-left: 6px; padding-right: 6px; }

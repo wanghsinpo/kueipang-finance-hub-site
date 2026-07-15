@@ -1,7 +1,7 @@
 // reports.js — 報表計算：試算表、分類帳、損益表、資產負債表、月度統計
 // 慣例：signed 金額 = 借正貸負；期末 = 期初 + 借 - 貸
 import { store } from './store.js';
-import { isPL } from './util.js';
+import { isPL, GROUPS } from './util.js';
 
 // 傳票年帳 → 各科目 {open, dr, cr, close}；範圍 [from, to]（含，民國字串，可省略）
 export function trialBalance(year, from, to) {
@@ -62,6 +62,88 @@ export function ledger(year, code, from, to) {
   if (out.rows.length === 0) out.openingAtFrom = bal;
   out.closing = bal;
   return out;
+}
+
+// 試算表總額式：每個餘額拆成借方欄或貸方欄（另一欄留 0）
+// 布政使欄位定義：期初借方餘額/期初貸方餘額、本期借方金額/本期貸方金額、期末借方餘額/期末貸方餘額
+// 三對欄位各自應該借貸相等，是比餘額式更強的檢查
+export function tbGross(rows) {
+  const out = rows.map(r => ({
+    code: r.code,
+    openDr: r.open > 0 ? r.open : 0,
+    openCr: r.open < 0 ? -r.open : 0,
+    dr: r.dr,
+    cr: r.cr,
+    closeDr: r.close > 0 ? r.close : 0,
+    closeCr: r.close < 0 ? -r.close : 0,
+  }));
+  const tot = out.reduce((s, r) => {
+    s.openDr += r.openDr; s.openCr += r.openCr;
+    s.dr += r.dr; s.cr += r.cr;
+    s.closeDr += r.closeDr; s.closeCr += r.closeCr;
+    return s;
+  }, { openDr: 0, openCr: 0, dr: 0, cr: 0, closeDr: 0, closeCr: 0 });
+  return { rows: out, tot };
+}
+
+// 日記帳（分錄簿）：時序排列的傳票，每張含完整分錄
+// month 為 1-12 時只取該月；0/null 為全年
+export function journal(year, month) {
+  const b = store.book(year);
+  const vs = b.vouchers
+    .filter(v => v.kind !== '9')
+    .filter(v => !month || parseInt(v.date.slice(4, 6), 10) === month)
+    .sort((a, b2) => a.date === b2.date ? a.no.localeCompare(b2.no) : a.date.localeCompare(b2.date));
+  const out = vs.map(v => {
+    const dr = v.lines.filter(l => l.side === 'D').reduce((s, l) => s + l.amt, 0);
+    const cr = v.lines.filter(l => l.side === 'C').reduce((s, l) => s + l.amt, 0);
+    return { no: v.no, date: v.date, kind: v.kind, memo: v.memo, lines: v.lines, dr, cr, balanced: dr === cr };
+  });
+  const tot = out.reduce((s, v) => { s.dr += v.dr; s.cr += v.cr; return s; }, { dr: 0, cr: 0 });
+  return { vouchers: out, tot, unbalanced: out.filter(v => !v.balanced).length };
+}
+
+// 現金簿：現金及銀行科目合併，時序 + 移動餘額 + 對方科目
+// 「收」=借方（錢進來）、「付」=貸方（錢出去）；bal 為所有現金銀行科目的合計部位
+export function cashBook(year, month) {
+  const b = store.book(year);
+  const isCash = GROUPS.cash;
+  let opening = 0;
+  for (const [code, amt] of Object.entries(b.opening)) if (isCash(code)) opening += amt;
+
+  const items = [];
+  for (const v of b.vouchers) {
+    if (v.kind === '9') continue;
+    const contra = [...new Set(v.lines.filter(l => !isCash(l.acct)).map(l => l.acct))];
+    for (const l of v.lines) {
+      if (!isCash(l.acct)) continue;
+      items.push({
+        date: v.date, no: v.no, kind: v.kind, acct: l.acct,
+        side: l.side, amt: l.amt, memo: l.memo || v.memo, contra,
+      });
+    }
+  }
+  items.sort((a, b2) => a.date === b2.date ? a.no.localeCompare(b2.no) : a.date.localeCompare(b2.date));
+
+  let bal = opening, openingAtFrom = opening;
+  const rows = [];
+  for (const it of items) {
+    const signed = it.side === 'D' ? it.amt : -it.amt;
+    if (month && parseInt(it.date.slice(4, 6), 10) < month) { bal += signed; openingAtFrom = bal; continue; }
+    if (month && parseInt(it.date.slice(4, 6), 10) > month) break;
+    bal += signed;
+    rows.push({ ...it, bal });
+  }
+  const tot = rows.reduce((s, r) => { if (r.side === 'D') s.in += r.amt; else s.out += r.amt; return s; }, { in: 0, out: 0 });
+  return { opening: openingAtFrom, rows, tot, closing: bal };
+}
+
+// 現金銀行科目清單（供現金簿標示與篩選）
+export function cashAccounts(year) {
+  const b = store.book(year);
+  const set = new Set(Object.keys(b.opening).filter(GROUPS.cash));
+  for (const v of b.vouchers) for (const l of v.lines) if (GROUPS.cash(l.acct)) set.add(l.acct);
+  return [...set].sort();
 }
 
 // 損益表：rows 來自 tbRows；回傳分節結構（金額為正向表達）
