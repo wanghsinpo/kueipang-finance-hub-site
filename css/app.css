@@ -370,6 +370,19 @@ select.input { appearance: auto; }
 .tbl-cash { font-size: 13px; }
 .tbl-cash td { padding-left: 6px; padding-right: 6px; }
 
+/* ---- 財產目錄（固定資產）---- */
+.asset-cls { border-top: 1px solid var(--grid); }
+.asset-cls:first-of-type { border-top: none; }
+.asset-cls > summary {
+  cursor: pointer; padding: 10px 2px; font-size: 14px;
+  list-style: none; user-select: none;
+}
+.asset-cls > summary::-webkit-details-marker { display: none; }
+.asset-cls > summary::before { content: '▸ '; color: var(--ink-2); }
+.asset-cls[open] > summary::before { content: '▾ '; }
+.asset-cls[open] > summary { border-bottom: 1px solid var(--grid); }
+.asset-cls .table-scroll { margin-bottom: 10px; }
+
 /* ---- 部門別試算表 ---- */
 .tbl-dept .dept-head td {
   padding-top: 14px; border-bottom: 1px solid var(--baseline);

@@ -23,6 +23,7 @@ export const store = {
   settings: load('settings', {}),
   templates: load('templates', []),
   historyTB: load('historyTB', {}),
+  assets: load('assets', {}),        // year -> {format,year,printedAt,method,classes,totals,items,...}（財產目錄，唯讀）
   books: {},          // year -> book（延遲載入）
   dirty: load('dirty', {}),   // 檔名 -> true（本機有未同步變更）
 
@@ -65,6 +66,18 @@ export const store = {
   },
   histYears() {
     return Object.keys(this.historyTB).map(Number).sort((a, b) => b - a);
+  },
+
+  // ---- 財產目錄（固定資產）----
+  assetYears() {
+    return Object.keys(this.assets).map(Number).sort((a, b) => b - a);
+  },
+  hasAssets(year) { return !!this.assets[year]; },
+  setAssets(obj) {
+    if (!obj || !obj.year) throw new Error('財產目錄缺少年度');
+    this.assets[obj.year] = obj;
+    save('assets', this.assets);
+    this.markDirty(`assets-${obj.year}.json`);
   },
   book(year) {
     if (!this.books[year]) {
@@ -136,6 +149,7 @@ export const store = {
       accounts: this.accounts,
       books,
       historyTB: this.historyTB,
+      assets: this.assets,
       templates: this.templates,
     };
   },
@@ -143,7 +157,9 @@ export const store = {
   importAny(obj) {
     const done = [];
     const isBook = o => o && typeof o === 'object' && o.year && o.opening && Array.isArray(o.vouchers);
-    if (Array.isArray(obj) && obj.length && obj[0].code && obj[0].name) {
+    if (obj && obj.format === 'kfh-assets' && obj.year) {
+      this.setAssets(obj); done.push(`${obj.year} 年財產目錄（${(obj.items || []).length} 項）`);
+    } else if (Array.isArray(obj) && obj.length && obj[0].code && obj[0].name) {
       this.setAccounts(obj); done.push(`科目 ${obj.length} 筆`);
     } else if (isBook(obj)) {
       this.putBook(obj); done.push(`${obj.year} 年帳簿（${obj.vouchers.length} 張傳票）`);
@@ -155,6 +171,10 @@ export const store = {
       if (obj.historyTB && Object.keys(obj.historyTB).length) {
         this.historyTB = obj.historyTB; save('historyTB', obj.historyTB);
         done.push(`歷史試算表 ${Object.keys(obj.historyTB).length} 年`);
+      }
+      if (obj.assets && Object.keys(obj.assets).length) {
+        this.assets = obj.assets; save('assets', obj.assets);
+        done.push(`財產目錄 ${Object.keys(obj.assets).length} 年`);
       }
       if (Array.isArray(obj.templates) && obj.templates.length) {
         this.templates = obj.templates; this.saveTemplates(); done.push(`範本 ${obj.templates.length} 個`);
@@ -174,7 +194,7 @@ export const store = {
       if (k && k.startsWith(PFX)) keys.push(k);
     }
     keys.forEach(k => localStorage.removeItem(k));
-    this.accounts = []; this.books = {}; this.historyTB = {}; this.templates = [];
+    this.accounts = []; this.books = {}; this.historyTB = {}; this.assets = {}; this.templates = [];
     this.settings = {}; this.dirty = {}; this._acctMap = null;
   },
 };

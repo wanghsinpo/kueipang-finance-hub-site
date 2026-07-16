@@ -74,6 +74,8 @@ export const sync = {
       else {
         const m = name.match(/^book-(\d+)\.json$/);
         if (m) obj = store.book(parseInt(m[1], 10));
+        const ma = name.match(/^assets-(\d+)\.json$/);
+        if (ma) obj = store.assets[parseInt(ma[1], 10)];
       }
       if (obj) {
         await this.saveFile(name, obj);
@@ -87,7 +89,8 @@ export const sync = {
     for (const f of remote) {
       if (store.dirty[f.name]) continue;              // 剛上傳或仍髒，跳過
       const m = f.name.match(/^book-(\d+)\.json$/);
-      const isKnown = m || f.name === 'accounts.json' || f.name === 'history-tb.json';
+      const isKnown = m || f.name === 'accounts.json' || f.name === 'history-tb.json'
+        || /^assets-\d+\.json$/.test(f.name);
       if (!isKnown) continue;
       const localUpdated = m ? (store.book(parseInt(m[1], 10)).updatedAt || '') : '';
       // 帳簿檔比 updatedAt；主檔類每次同步都拉（檔小）
@@ -122,6 +125,10 @@ export const sync = {
     for (const y of store.bookYears()) {
       await this.saveFile(`book-${y}.json`, store.book(y));
       log.push(`上傳 book-${y}.json`); onProgress(log.length);
+    }
+    for (const y of store.assetYears()) {
+      await this.saveFile(`assets-${y}.json`, store.assets[y]);
+      log.push(`上傳 assets-${y}.json`); onProgress(log.length);
     }
     Object.keys(store.dirty).forEach(n => store.clearDirty(n));
     store.settings.lastSync = new Date().toISOString();

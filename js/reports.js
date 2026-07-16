@@ -190,6 +190,22 @@ export function deptTrialBalance(year) {
   return { groups, grand, hasDepts: Object.keys(depts).length > 0 };
 }
 
+// 財產目錄（固定資產）：整理布政使財產目錄快照供顯示
+// gross = 取得原價 + 改良修理（＝折舊彙總表口徑，帳面淨值 = gross − 累計折舊）
+export function assetCatalog(year) {
+  const a = store.assets[year];
+  if (!a) return null;
+  const withGross = o => ({ ...o, gross: (o.cost || 0) + (o.improve || 0) });
+  const classes = (a.classes || []).map(withGross);
+  const items = (a.items || []).map(withGross);
+  const t = a.totals || {};
+  const totals = { ...t, gross: (t.cost || 0) + (t.improve || 0) };
+  const byClass = {};
+  for (const it of items) (byClass[it.cls] || (byClass[it.cls] = [])).push(it);
+  return { meta: { year: a.year, printedAt: a.printedAt, method: a.method, source: a.source, note: a.note },
+           classes, items, byClass, totals };
+}
+
 // 損益表：rows 來自 tbRows；回傳分節結構（金額為正向表達）
 export function incomeStatement(rows) {
   const nm = c => store.acctName(c);

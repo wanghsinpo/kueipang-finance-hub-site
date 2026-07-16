@@ -93,6 +93,10 @@ export function vDashboard() {
     { label: '股東往來（淨）', v: d.shareholderNet },
     { label: `${year} 累計營收`, v: d.ytdRevenue },
   ];
+  if (store.hasAssets(year)) {
+    const at = R.assetCatalog(year).totals;
+    tiles.push({ label: '固定資產淨值', v: at.nbv });
+  }
 
   main().innerHTML = `
   <div class="page">
@@ -458,8 +462,10 @@ export function vReports() {
 
   // 日記帳／現金簿／部門別需要逐筆傳票，歷史封存年（僅有 TB 彙總）不適用
   const LIVE_ONLY = ['jn', 'cb', 'dp'];
+  const hasAssets = store.hasAssets(year);
   let type = sessionStorage.getItem('kfh.rt') || 'tb';
   if (!live && LIVE_ONLY.includes(type)) type = 'tb';
+  if (type === 'am' && !hasAssets) type = 'tb';
   const month = parseInt(sessionStorage.getItem('kfh.rm') || '0', 10);
   const tbMode = sessionStorage.getItem('kfh.tbm') || 'net';   // net=餘額式 gross=總額式
 
@@ -469,6 +475,7 @@ export function vReports() {
     : type === 'bs' ? reportBS(R.balanceSheet(rows))
     : type === 'jn' ? reportJournal(R.journal(year, month))
     : type === 'dp' ? reportDept(R.deptTrialBalance(year))
+    : type === 'am' ? reportAssets(R.assetCatalog(year))
     : reportCashBook(R.cashBook(year, month));
 
   // 部門別為全年彙總，不吃月份篩選
@@ -497,6 +504,7 @@ export function vReports() {
       ${live ? `<button class="tab ${type === 'jn' ? 'active' : ''}" data-t="jn">日記帳</button>
       <button class="tab ${type === 'cb' ? 'active' : ''}" data-t="cb">現金簿</button>
       <button class="tab ${type === 'dp' ? 'active' : ''}" data-t="dp">部門別</button>` : ''}
+      ${hasAssets ? `<button class="tab ${type === 'am' ? 'active' : ''}" data-t="am">財產目錄</button>` : ''}
     </div>
     ${type === 'tb' ? `<div class="seg">
       <button class="seg-btn ${tbMode === 'net' ? 'active' : ''}" data-m="net">餘額式</button>
@@ -675,6 +683,52 @@ function reportDept(d) {
     </table></div></div>`;
 }
 
+function reportAssets(a) {
+  if (!a) return '<div class="card"><p class="muted">此年度無財產目錄資料。</p></div>';
+  const { meta, classes, byClass, totals } = a;
+  const itemRows = list => list.map(it => `<tr>
+      <td class="indent">${esc(it.name)}</td>
+      <td class="mono muted">${esc(it.date || '')}</td>
+      <td class="num muted">${it.qty || ''}${esc(it.unit || '')}</td>
+      <td class="num">${fmt(it.gross)}</td>
+      <td class="num">${it.thisYear ? fmt(it.thisYear) : ''}</td>
+      <td class="num muted">${fmt(it.accum)}</td>
+      <td class="num"><b>${fmt(it.nbv)}</b></td>
+    </tr>`).join('');
+  return `<div class="card">
+    <div class="rpt-meta">財產目錄（列印日 ${esc(meta.printedAt)}，折舊 ${esc(meta.method)}）。取得原價含改良 ${fmt(totals.gross)}、累計折舊 ${fmt(totals.accum)}、帳面淨值 <b>${fmt(totals.nbv)}</b>。<span class="muted">${esc(meta.note || '')}</span></div>
+    <div class="table-scroll"><table class="tbl">
+      <thead><tr><th>類別</th><th class="num">項數</th><th class="num">取得原價<span class="muted small">(含改良)</span></th><th class="num">本期折舊</th><th class="num">累計折舊</th><th class="num">帳面淨值</th></tr></thead>
+      <tbody>
+        ${classes.map(c => `<tr>
+          <td><b>${esc(c.name)}</b></td>
+          <td class="num muted">${c.n}</td>
+          <td class="num">${fmt(c.gross)}</td>
+          <td class="num">${c.thisYear ? fmt(c.thisYear) : ''}</td>
+          <td class="num muted">${fmt(c.accum)}</td>
+          <td class="num"><b>${fmt(c.nbv)}</b></td>
+        </tr>`).join('')}
+      </tbody>
+      <tfoot><tr><td>合計</td>
+        <td class="num"><b>${classes.reduce((s, c) => s + c.n, 0)}</b></td>
+        <td class="num"><b>${fmt(totals.gross)}</b></td>
+        <td class="num"><b>${fmt(totals.thisYear)}</b></td>
+        <td class="num"><b>${fmt(totals.accum)}</b></td>
+        <td class="num"><b>${fmt(totals.nbv)}</b></td></tr></tfoot>
+    </table></div>
+  </div>
+  <div class="card">
+    <div class="rpt-meta">明細（點類別展開）</div>
+    ${classes.map(c => `<details class="asset-cls">
+      <summary><b>${esc(c.name)}</b> <span class="muted">${c.n} 項　淨值 ${fmt(c.nbv)}</span></summary>
+      <div class="table-scroll"><table class="tbl">
+        <thead><tr><th>名稱</th><th>取得日</th><th class="num">數量</th><th class="num">原價<span class="muted small">(含改良)</span></th><th class="num">本期折舊</th><th class="num">累計折舊</th><th class="num">帳面淨值</th></tr></thead>
+        <tbody>${itemRows(byClass[c.name] || [])}</tbody>
+      </table></div>
+    </details>`).join('')}
+  </div>`;
+}
+
 function secRows(list) {
   return list.map(x => `<tr><td class="indent"><a class="link" href="#/ledger/${x.code}">${esc(x.name)}</a></td><td class="num">${fmt(x.amt)}</td></tr>`).join('');
 }
@@ -763,7 +817,7 @@ export function vSettings() {
 
     <div class="card form">
       <h3>關於</h3>
-      <p class="muted small">奎邦財務中心 v1.0.0<br>資料所在：本機瀏覽器 + 公司 Google Drive<br>
+      <p class="muted small">奎邦財務中心 v1.3.0<br>資料所在：本機瀏覽器 + 公司 Google Drive<br>
       <button class="btn btn-ghost" id="s-refresh">更新到最新版本（清除快取重載）</button></p>
     </div>
   </div>`;
