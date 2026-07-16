@@ -267,6 +267,40 @@ export function monthlyPL(year) {
   return out;
 }
 
+// 逐年彙總（跨年度趨勢用）：單一年度的關鍵財務數字
+// 歷史年用 TB 期末值、115 用傳票；損益／資產負債複用既有計算
+export function yearSummary(year) {
+  const rows = tbRows(year);
+  const is = incomeStatement(rows);
+  const bs = balanceSheet(rows);
+  const sumWhere = pred => rows.filter(r => pred(r.code)).reduce((s, r) => s + r.close, 0);
+  return {
+    year,
+    live: hasVoucherData(year),
+    revenue: is.totals.netRevenue,
+    grossProfit: is.totals.grossProfit,
+    grossMargin: is.totals.grossMargin,
+    operating: is.totals.operating,
+    preTax: is.totals.preTax,
+    net: is.totals.net,
+    assets: bs.totals.assets,
+    liabs: bs.totals.liabs,
+    equity: bs.totals.equity,
+    balanced: bs.totals.balanced,
+    cash: sumWhere(GROUPS.cash),
+    receivable: sumWhere(GROUPS.receivable),
+    payable: -sumWhere(GROUPS.payable),
+    bankLoan: -sumWhere(GROUPS.bankLoan),
+    shareholderNet: sumWhere(GROUPS.shareholder),
+  };
+}
+
+// 全部年度的彙總序列（由舊到新）
+export function trendSeries() {
+  const years = [...new Set([...store.bookYears(), ...store.histYears()])].sort((a, b) => a - b);
+  return years.map(yearSummary);
+}
+
 // 儀表板統計
 export function dashboard(year) {
   const rows = trialBalance(year);

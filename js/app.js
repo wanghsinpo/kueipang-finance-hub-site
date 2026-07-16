@@ -11,6 +11,7 @@ const routes = [
   { re: /^#\/accounts$/, fn: () => V.vAccounts() },
   { re: /^#\/ledger\/(\d{7})$/, fn: m => V.vLedger(m[1]) },
   { re: /^#\/reports$/, fn: () => V.vReports() },
+  { re: /^#\/trends$/, fn: () => V.vTrends() },
   { re: /^#\/settings$/, fn: () => V.vSettings() },
 ];
 

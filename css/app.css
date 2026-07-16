@@ -389,3 +389,13 @@ select.input { appearance: auto; }
   background: var(--page); font-size: 13px;
 }
 .tbl-dept tbody:first-of-type .dept-head td { padding-top: 4px; }
+
+/* ---- 跨年度趨勢 ---- */
+.bar-neg { fill: var(--bad); }
+.bar-neg.active { fill: var(--bad); filter: brightness(0.82); }
+.seg-wrap { display: flex; flex-wrap: wrap; width: 100%; height: auto; }
+.seg-wrap .seg-btn { border-left: 1px solid var(--border); }
+.chip-sm { font-size: 10px; padding: 1px 6px; vertical-align: middle; }
+.tbl-trend { font-size: 13px; white-space: nowrap; }
+.tbl-trend td, .tbl-trend th { padding-left: 8px; padding-right: 8px; }
+.tbl-trend td.neg { color: var(--bad); }

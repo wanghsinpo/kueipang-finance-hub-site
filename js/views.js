@@ -518,6 +518,110 @@ export function vReports() {
   main().querySelectorAll('.seg-btn').forEach(b => b.onclick = () => { sessionStorage.setItem('kfh.tbm', b.dataset.m); vReports(); });
 }
 
+// ============================================================ 跨年度趨勢
+const TREND_METRICS = [
+  { k: 'revenue', name: '營業收入' },
+  { k: 'preTax', name: '稅前淨利' },
+  { k: 'net', name: '本期淨利' },
+  { k: 'assets', name: '總資產' },
+  { k: 'bankLoan', name: '銀行借款' },
+  { k: 'shareholderNet', name: '股東往來（淨）' },
+  { k: 'cash', name: '現金及銀行' },
+];
+export function vTrends() {
+  const s = R.trendSeries();
+  if (!s.length) { vOnboarding(); return; }
+  const metric = sessionStorage.getItem('kfh.tm') || 'revenue';
+  const mDef = TREND_METRICS.find(m => m.k === metric) || TREND_METRICS[0];
+  const pct = v => (v * 100).toFixed(1) + '%';
+  const cell = v => `<td class="num ${v < 0 ? 'neg' : ''}">${fmt(v)}</td>`;
+
+  main().innerHTML = `
+  <div class="page">
+    <div class="page-head"><h2>跨年度趨勢 <span class="muted">民國 ${s[0].year}–${s[s.length - 1].year}</span></h2></div>
+    <div class="banner banner-info">歷史年（88–114）取自布政使各年試算表期末值，115 年為本系統傳票即時計算。早年（88–91）未正式建帳、93–101 有既有流量缺口；<b>115 為年初至今累計、期末存貨尚未回沖，淨利會明顯偏低（非真實虧損）</b>。趨勢僅供概覽。</div>
+    <div class="card">
+      <div class="seg seg-wrap">
+        ${TREND_METRICS.map(m => `<button class="seg-btn ${m.k === metric ? 'active' : ''}" data-k="${m.k}">${m.name}</button>`).join('')}
+      </div>
+      <div class="card-head"><h3>${mDef.name}</h3><span class="muted small">單位：元（軸標示為萬／億）</span></div>
+      <div id="chart-trend"></div>
+    </div>
+    <div class="card">
+      <div class="rpt-meta">各年關鍵數字（新到舊）</div>
+      <div class="table-scroll"><table class="tbl tbl-trend">
+        <thead><tr>
+          <th>年度</th><th class="num">營業收入</th><th class="num">毛利率</th>
+          <th class="num">稅前淨利</th><th class="num">本期淨利</th>
+          <th class="num">總資產</th><th class="num">總負債</th><th class="num">權益</th>
+          <th class="num">現金及銀行</th><th class="num">銀行借款</th><th class="num">股東往來(淨)</th>
+        </tr></thead>
+        <tbody>
+          ${s.slice().reverse().map(r => `<tr>
+            <td><b>${r.year}</b>${r.live ? ' <span class="chip chip-ok chip-sm">現行</span>' : ''}</td>
+            ${cell(r.revenue)}
+            <td class="num muted">${r.revenue ? pct(r.grossMargin) : '—'}</td>
+            ${cell(r.preTax)}${cell(r.net)}
+            ${cell(r.assets)}${cell(r.liabs)}${cell(r.equity)}
+            ${cell(r.cash)}${cell(r.bankLoan)}${cell(r.shareholderNet)}
+          </tr>`).join('')}
+        </tbody>
+      </table></div>
+    </div>
+  </div>`;
+
+  renderTrendChart($('#chart-trend'), s.map(r => ({ label: String(r.year), value: r[metric] })));
+  main().querySelectorAll('.seg-btn').forEach(b => b.onclick = () => { sessionStorage.setItem('kfh.tm', b.dataset.k); vTrends(); });
+}
+
+// 零基線長條圖（支援負值）：data = [{label, value}]
+function renderTrendChart(el, data) {
+  if (!el || !data.length) return;
+  const W = 700, H = 220, padL = 10, padR = 48, padT = 16, padB = 26;
+  const vals = data.map(d => d.value);
+  const min = Math.min(0, ...vals), max = Math.max(0, ...vals);
+  const range = (max - min) || 1;
+  const iw = (W - padL - padR) / data.length;
+  const bw = Math.min(26, iw * 0.66);
+  const y = v => padT + (H - padT - padB) * (1 - (v - min) / range);
+  const y0 = y(0);
+  const labelEvery = Math.ceil(data.length / 14);
+  const bars = data.map((d, i) => {
+    const x = padL + i * iw + (iw - bw) / 2;
+    const yv = y(d.value);
+    const top = Math.min(yv, y0), h = Math.max(1, Math.abs(yv - y0));
+    const showLbl = i % labelEvery === 0 || i === data.length - 1;
+    return `<rect class="bar ${d.value < 0 ? 'bar-neg' : ''}" data-i="${i}" x="${x}" y="${top}" width="${bw}" height="${h}" rx="2"/>
+      <rect class="bar-hit" data-i="${i}" x="${padL + i * iw}" y="${padT}" width="${iw}" height="${H - padT - padB}"/>
+      ${showLbl ? `<text class="axis-label" x="${x + bw / 2}" y="${H - 8}" text-anchor="middle">${d.label}</text>` : ''}`;
+  }).join('');
+  const ticks = [...new Set([max, 0, min])];
+  const grid = ticks.map(t => `<line class="gridline" x1="${padL}" x2="${W - padR}" y1="${y(t)}" y2="${y(t)}"/>
+    <text class="axis-label" x="${W - padR + 3}" y="${y(t) + 3}" text-anchor="start">${wan(t)}</text>`).join('');
+  el.innerHTML = `<div class="chart-wrap"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="跨年度趨勢長條圖">
+    ${grid}
+    <line class="baseline" x1="${padL}" x2="${W - padR}" y1="${y0}" y2="${y0}"/>
+    ${bars}
+  </svg><div class="chart-tip" hidden></div></div>`;
+  const tip = el.querySelector('.chart-tip');
+  el.querySelectorAll('.bar-hit').forEach(hit => {
+    const show = () => {
+      const i = +hit.dataset.i;
+      el.querySelectorAll('.bar').forEach(b => b.classList.toggle('active', +b.dataset.i === i));
+      tip.textContent = `${data[i].label} 年：${fmt(data[i].value)}`;
+      tip.hidden = false;
+      const rect = el.getBoundingClientRect(), hr = hit.getBoundingClientRect();
+      tip.style.left = Math.max(4, Math.min(hr.left - rect.left + hr.width / 2 - tip.offsetWidth / 2, rect.width - tip.offsetWidth - 4)) + 'px';
+    };
+    hit.addEventListener('mouseenter', show);
+    hit.addEventListener('click', show);
+  });
+  el.querySelector('svg').addEventListener('mouseleave', () => {
+    tip.hidden = true;
+    el.querySelectorAll('.bar').forEach(b => b.classList.remove('active'));
+  });
+}
+
 function reportTB(rows, historical = false, mode = 'net') {
   const nz = rows.filter(r => r.open || r.dr || r.cr || r.close);
   if (mode === 'gross') return reportTBGross(nz, historical);
@@ -817,7 +921,7 @@ export function vSettings() {
 
     <div class="card form">
       <h3>關於</h3>
-      <p class="muted small">奎邦財務中心 v1.3.0<br>資料所在：本機瀏覽器 + 公司 Google Drive<br>
+      <p class="muted small">奎邦財務中心 v1.4.0<br>資料所在：本機瀏覽器 + 公司 Google Drive<br>
       <button class="btn btn-ghost" id="s-refresh">更新到最新版本（清除快取重載）</button></p>
     </div>
   </div>`;
