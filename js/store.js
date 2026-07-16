@@ -24,6 +24,7 @@ export const store = {
   templates: load('templates', []),
   historyTB: load('historyTB', {}),
   assets: load('assets', {}),        // year -> {format,year,printedAt,method,classes,totals,items,...}（財產目錄，唯讀）
+  payables: load('payables', {}),    // year -> {year,total,count,months:[{m,total,items:[{supplier,due,ref,amt}]}]}（應付付款明細，唯讀）
   books: {},          // year -> book（延遲載入）
   dirty: load('dirty', {}),   // 檔名 -> true（本機有未同步變更）
 
@@ -78,6 +79,17 @@ export const store = {
     this.assets[obj.year] = obj;
     save('assets', this.assets);
     this.markDirty(`assets-${obj.year}.json`);
+  },
+
+  // ---- 應付帳款付款明細（單檔含各年，鍵為年度）----
+  payableYears() {
+    return Object.keys(this.payables).map(Number).sort((a, b) => b - a);
+  },
+  hasPayables(year) { return !!this.payables[year]; },
+  setPayables(obj) {
+    this.payables = obj || {};
+    save('payables', this.payables);
+    this.markDirty('payables.json');
   },
   book(year) {
     if (!this.books[year]) {
@@ -150,6 +162,7 @@ export const store = {
       books,
       historyTB: this.historyTB,
       assets: this.assets,
+      payables: this.payables,
       templates: this.templates,
     };
   },
@@ -159,6 +172,9 @@ export const store = {
     const isBook = o => o && typeof o === 'object' && o.year && o.opening && Array.isArray(o.vouchers);
     if (obj && obj.format === 'kfh-assets' && obj.year) {
       this.setAssets(obj); done.push(`${obj.year} 年財產目錄（${(obj.items || []).length} 項）`);
+    } else if (obj && obj.format === 'kfh-payables' && obj.years) {
+      this.setPayables(obj.years);
+      done.push(`應付付款明細 ${Object.keys(obj.years).length} 年`);
     } else if (Array.isArray(obj) && obj.length && obj[0].code && obj[0].name) {
       this.setAccounts(obj); done.push(`科目 ${obj.length} 筆`);
     } else if (isBook(obj)) {
@@ -175,6 +191,10 @@ export const store = {
       if (obj.assets && Object.keys(obj.assets).length) {
         this.assets = obj.assets; save('assets', obj.assets);
         done.push(`財產目錄 ${Object.keys(obj.assets).length} 年`);
+      }
+      if (obj.payables && Object.keys(obj.payables).length) {
+        this.payables = obj.payables; save('payables', obj.payables);
+        done.push(`應付付款明細 ${Object.keys(obj.payables).length} 年`);
       }
       if (Array.isArray(obj.templates) && obj.templates.length) {
         this.templates = obj.templates; this.saveTemplates(); done.push(`範本 ${obj.templates.length} 個`);
@@ -194,7 +214,7 @@ export const store = {
       if (k && k.startsWith(PFX)) keys.push(k);
     }
     keys.forEach(k => localStorage.removeItem(k));
-    this.accounts = []; this.books = {}; this.historyTB = {}; this.assets = {}; this.templates = [];
+    this.accounts = []; this.books = {}; this.historyTB = {}; this.assets = {}; this.payables = {}; this.templates = [];
     this.settings = {}; this.dirty = {}; this._acctMap = null;
   },
 };

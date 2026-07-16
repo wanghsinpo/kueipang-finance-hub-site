@@ -463,9 +463,11 @@ export function vReports() {
   // 日記帳／現金簿／部門別需要逐筆傳票，歷史封存年（僅有 TB 彙總）不適用
   const LIVE_ONLY = ['jn', 'cb', 'dp'];
   const hasAssets = store.hasAssets(year);
+  const hasPayables = store.hasPayables(year);
   let type = sessionStorage.getItem('kfh.rt') || 'tb';
   if (!live && LIVE_ONLY.includes(type)) type = 'tb';
   if (type === 'am' && !hasAssets) type = 'tb';
+  if (type === 'ap' && !hasPayables) type = 'tb';
   const month = parseInt(sessionStorage.getItem('kfh.rm') || '0', 10);
   const tbMode = sessionStorage.getItem('kfh.tbm') || 'net';   // net=餘額式 gross=總額式
 
@@ -476,6 +478,7 @@ export function vReports() {
     : type === 'jn' ? reportJournal(R.journal(year, month))
     : type === 'dp' ? reportDept(R.deptTrialBalance(year))
     : type === 'am' ? reportAssets(R.assetCatalog(year))
+    : type === 'ap' ? reportPayables(R.payablesReport(year))
     : reportCashBook(R.cashBook(year, month));
 
   // 部門別為全年彙總，不吃月份篩選
@@ -505,6 +508,7 @@ export function vReports() {
       <button class="tab ${type === 'cb' ? 'active' : ''}" data-t="cb">現金簿</button>
       <button class="tab ${type === 'dp' ? 'active' : ''}" data-t="dp">部門別</button>` : ''}
       ${hasAssets ? `<button class="tab ${type === 'am' ? 'active' : ''}" data-t="am">財產目錄</button>` : ''}
+      ${hasPayables ? `<button class="tab ${type === 'ap' ? 'active' : ''}" data-t="ap">供應商付款</button>` : ''}
     </div>
     ${type === 'tb' ? `<div class="seg">
       <button class="seg-btn ${tbMode === 'net' ? 'active' : ''}" data-m="net">餘額式</button>
@@ -833,6 +837,61 @@ function reportAssets(a) {
   </div>`;
 }
 
+function reportPayables(p) {
+  if (!p) return '<div class="card"><p class="muted">此年度無應付付款明細。</p></div>';
+  const dstr = d => (d && /^\d{7}$/.test(d)) ? d.replace(/(\d{3})(\d{2})(\d{2})/, '$1/$2/$3') : (d || '');
+  const bar = (v, max) => `<div class="share"><div class="share-fill" style="width:${max ? (v / max * 100).toFixed(1) : 0}%"></div></div>`;
+  const mmax = Math.max(1, ...p.monthly.map(m => m.total));
+  const smax = Math.max(1, ...p.suppliers.map(s => s.amt));
+  const TOPN = 30;
+  const top = p.suppliers.slice(0, TOPN);
+  const restN = p.suppliers.length - top.length;
+  const rest = p.suppliers.slice(TOPN).reduce((s, x) => s + x.amt, 0);
+  const method = it => (it.ref && it.ref !== '匯款') ? `<span class="chip chip-sm">支票 ${esc(it.ref)}</span>` : '<span class="muted">匯款</span>';
+
+  return `<div class="card">
+    <div class="rpt-meta">全年付款 <b>${fmt(p.total)}</b>，${p.count} 筆、${p.supplierCount} 家廠商。支票 ${fmt(p.cheque)}／匯款 ${fmt(p.wire)}。<span class="muted">來源：zheng 應付帳款付款明細（GL 過帳底稿）</span></div>
+    <div class="table-scroll"><table class="tbl tbl-trend">
+      <thead><tr><th>月</th><th class="num">筆數</th><th class="num">付款金額</th><th class="bar-col">占比</th></tr></thead>
+      <tbody>
+        ${p.monthly.map(m => `<tr>
+          <td><b>${m.m} 月</b></td><td class="num muted">${m.count}</td>
+          <td class="num">${fmt(m.total)}</td><td class="bar-col">${bar(m.total, mmax)}</td>
+        </tr>`).join('')}
+      </tbody>
+      <tfoot><tr><td>合計</td><td class="num"><b>${p.count}</b></td><td class="num"><b>${fmt(p.total)}</b></td><td></td></tr></tfoot>
+    </table></div>
+  </div>
+  <div class="card">
+    <div class="rpt-meta">廠商付款排行（前 ${Math.min(TOPN, p.suppliers.length)} 家${restN > 0 ? `，其餘 ${restN} 家` : ''}）</div>
+    <div class="table-scroll"><table class="tbl tbl-trend">
+      <thead><tr><th>#</th><th>廠商</th><th class="num">筆數</th><th class="num">金額</th><th class="num">占比</th><th class="bar-col"></th></tr></thead>
+      <tbody>
+        ${top.map((s, i) => `<tr>
+          <td class="muted">${i + 1}</td><td><b>${esc(s.supplier)}</b></td>
+          <td class="num muted">${s.count}</td><td class="num">${fmt(s.amt)}</td>
+          <td class="num muted">${(s.amt / p.total * 100).toFixed(1)}%</td>
+          <td class="bar-col">${bar(s.amt, smax)}</td>
+        </tr>`).join('')}
+        ${restN > 0 ? `<tr><td></td><td class="muted">其餘 ${restN} 家</td><td></td><td class="num muted">${fmt(rest)}</td><td class="num muted">${(rest / p.total * 100).toFixed(1)}%</td><td></td></tr>` : ''}
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <div class="rpt-meta">逐月明細（點月份展開）</div>
+    ${p.months.map(mo => `<details class="asset-cls">
+      <summary><b>${mo.m} 月</b> <span class="muted">${mo.items.length} 筆　${fmt(mo.total)}</span></summary>
+      <div class="table-scroll"><table class="tbl">
+        <thead><tr><th>廠商</th><th>到期日</th><th>方式</th><th class="num">金額</th></tr></thead>
+        <tbody>${mo.items.map(it => `<tr>
+          <td>${esc(it.supplier)}</td><td class="mono muted">${dstr(it.due)}</td>
+          <td>${method(it)}</td><td class="num">${fmt(it.amt)}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+    </details>`).join('')}
+  </div>`;
+}
+
 function secRows(list) {
   return list.map(x => `<tr><td class="indent"><a class="link" href="#/ledger/${x.code}">${esc(x.name)}</a></td><td class="num">${fmt(x.amt)}</td></tr>`).join('');
 }
@@ -921,7 +980,7 @@ export function vSettings() {
 
     <div class="card form">
       <h3>關於</h3>
-      <p class="muted small">奎邦財務中心 v1.4.0<br>資料所在：本機瀏覽器 + 公司 Google Drive<br>
+      <p class="muted small">奎邦財務中心 v1.5.0<br>資料所在：本機瀏覽器 + 公司 Google Drive<br>
       <button class="btn btn-ghost" id="s-refresh">更新到最新版本（清除快取重載）</button></p>
     </div>
   </div>`;

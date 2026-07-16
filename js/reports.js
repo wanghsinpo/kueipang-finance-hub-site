@@ -267,6 +267,26 @@ export function monthlyPL(year) {
   return out;
 }
 
+// 應付帳款付款明細：某年度的彙總（月別合計、廠商排行、支票／匯款拆分）
+export function payablesReport(year) {
+  const p = store.payables[year];
+  if (!p) return null;
+  const months = (p.months || []).slice().sort((a, b) => a.m - b.m);
+  const bySupplier = {};
+  let cheque = 0, wire = 0, count = 0;
+  for (const mo of months) {
+    for (const it of mo.items) {
+      const s = bySupplier[it.supplier] || (bySupplier[it.supplier] = { supplier: it.supplier, amt: 0, count: 0 });
+      s.amt += it.amt; s.count++; count++;
+      if (it.ref && it.ref !== '匯款') cheque += it.amt; else wire += it.amt;
+    }
+  }
+  const suppliers = Object.values(bySupplier).sort((a, b) => b.amt - a.amt);
+  const total = months.reduce((s, mo) => s + (mo.total || 0), 0);
+  const monthly = months.map(mo => ({ m: mo.m, total: mo.total || 0, count: mo.items.length }));
+  return { year, total, count, supplierCount: suppliers.length, cheque, wire, monthly, suppliers, months };
+}
+
 // 逐年彙總（跨年度趨勢用）：單一年度的關鍵財務數字
 // 歷史年用 TB 期末值、115 用傳票；損益／資產負債複用既有計算
 export function yearSummary(year) {
